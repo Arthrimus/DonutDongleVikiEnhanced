@@ -1,5 +1,5 @@
 /*
-* Donut Dongle v1.3p beta
+* Donut Dongle v1.3o beta
 * Copyright (C) 2025 @Donutswdad
 *
 * This program is free software: you can redistribute it and/or modify
@@ -32,7 +32,7 @@
 */
 
 uint8_t const debugE1CAP = 0; // line ~506
-uint8_t const debugE2CAP = 0; // line ~943
+uint8_t const debugE2CAP = 0; // line ~942
 
 uint16_t const offset = 0; // Only needed for multiple Donut Dongles (DD). Set offset so 2nd,3rd,etc boards don't overlap SVS profiles. (e.g. offset = 300;) 
                       // MUST use SVS=1 on additional DDs. If using the IR receiver, recommended to have it only connected to the DD with lowest offset.
@@ -354,7 +354,7 @@ uint8_t const gctl = 0; // 1 = Enables gscart/gcomp manual input selection (Defa
 String const auxpower = "LG"; // AUX8 + Power button sends power off/on via IR Emitter. "LG" OLEX CX is the only one implemented atm. 
 
 uint8_t const legacyOR[] = {1,2,3}; // For Legacy RT5x remote, when gctl = 1, you can use the bottom-most 3 buttons for manual input selection of gscart/gcomp inputs.
-                                    //                         set to input 1, 2, and 3 as default. Values can be: 1 - 8, for gscart/gcomp sw1 only at the moment.
+                                    //                         set to input 1, 2, and 3 as default. sendyesues can be: 1 - 8, for gscart/gcomp sw1 only at the moment.
                                     //
                                     // Use the "Back/Exit" button to re-enable auto switching.
                                     //
@@ -450,6 +450,19 @@ unsigned long currentTime = 0;
 unsigned long prevTime = 0;
 unsigned long prevBlinkTime = 0;
 
+// VIKI Manual Switch Variables
+unsigned long sendtimer = 0;
+unsigned long sendtimer2 = 0;
+unsigned long modetimer = 0;
+unsigned long modetimer2 = 0;
+uint8_t itestatus[] = {0,0,0,0,0};
+uint8_t itestatus2[] = {0,0,0,0,0};
+int sendyes = 1;
+int sendyes2 = 1;
+int mode = 0;
+int mode2 = 0;
+int iteinputnum = 0;
+int iteinputnum2 = 0;
 
 ////////////////////////////////////////////////////////////////////////
 
@@ -468,6 +481,8 @@ void setup(){
     extronSerial2.setTimeout(150); // sets the timeout for reading / saving into a string for the Extron sw2 Connection
     if(automatrixSW2)extronSerial2.write(VERB,5); // sets extron matrix switch to Verbose level 3
     pinMode(LED_BUILTIN, OUTPUT); // initialize builtin led for RTwake
+    sendtimer = millis();
+    modetimer = millis();
 
 } // end of setup
 
@@ -514,7 +529,6 @@ void readExtron1(){
       }
     }
     ecap = String((char *)ecapbytes); // convert bytes to String for Extron switches
-
 
     if(ecap.substring(0,3) == "Out" && !automatrixSW1){ // store only the input and output states, some Extron devices report output first instead of input
       einput = ecap.substring(6,10);
@@ -714,9 +728,69 @@ void readExtron1(){
 
     }
 
+
+        //VIKI Manual Switch Detection
+
+    if (millis() - modetimer > 2000){  // Timer that disables sending SVS serial commands using the ITE mux data when there has recently been an autoswitch command (prevents duplicate commands)
+      modetimer = millis(); // Resets timer to current millis() count to disable this function once the variables hav been updated
+      mode = 0;  // Sets mode to 0 so the ITE mux data can be used to send SVS serial commands again
+      sendyes = 1; // Turns off sendyes so the SVS serial commands are not repeated if an autoswitch command preceeded the ITE commands
+    }
+
+    if (ecap.startsWith("=") && mode == 0){   // checks if the serial command from the VIKI starts with "=" This indicates that the command is an ITE mux status message
+    if (ecap.substring(10,11) == "P"){       // converts ITE mux status message position 11 to integer and updates itestatus array position 0 to that value
+    itestatus[0] = ecap.substring(11,12).toInt();   // sets the itestatus array position 0 to 3
+    }
+    if (ecap.substring(18,20) == ">0"){       // checks if the ITE mux status message contains >0 at position 18-19
+    itestatus[2] = 0;                         // sets the itestatus array position 2 to 0
+    itestatus[1] = ecap.substring(12,13).toInt();  // converts ITE mux status message position 12 to integer and updates itestatus array position 1 to that value
+    }
+    if (ecap.substring(18,20) == ">1"){       // checks if the ITE mux status message contains >1 at position 18-19
+    itestatus[4] = 1;                         // sets the itestatus array position 4 to 1
+    itestatus[3] = ecap.substring(12,13).toInt();  // converts ITE mux status message position 12 to integer and updates itestatus array position 3 to that value
+    }
+     sendyes = 0;                             // sets sendyes to 0 indicating that an ITE message has been received and an SVS command can be sent once the sendtimer elapses
+     sendtimer = millis();                    // resets sendtimer to millis()
+     modetimer = millis();                    // resets modetimer to millis()
+   }
+    if ((millis() - sendtimer > 300) && sendyes == 0 && mode == 0){   // Checks is all conditions are met to sendSVS based on the ITE messages
+    sendtimer = millis();                     // resets sendtimer to millis()
+    sendyes = 1;                              // sets sendyes to 1 to prevent the message from being resent
+    if (itestatus[0] == 3){                   // Checks itestatus array position 0 to determine if port 3 of the IT6635 chip is currently selected
+        if (itestatus[1] == 2){               // Checks itestatus array position 1 to determine if port 2 of the IT66353 DEV0 chip is selected
+        iteinputnum = 1;                      // Sets iteinputnum to input 1
+        }
+        if (itestatus[1] == 1){               // Checks itestatus array position 1 to determine if port 1 of the IT66353 DEV0 chip is selected
+        iteinputnum = 2;                      // Sets iteinputnum to input 2
+        }
+        if (itestatus[1] == 0){               // Checks itestatus array position 1 to determine if port 0 of the IT66353 DEV0 chip is selected
+        iteinputnum = 3;                      // Sets iteinputnum to input 3
+        }
+      }
+      if (itestatus[0] == 2){                 // Checks itestatus array position 0 to determine if port 2 of the IT6635 chip is currently selected
+        if (itestatus[3] == 2){               // Checks itestatus array position 1 to determine if port 2 of the IT66353 DEV1 chip is selected
+        iteinputnum = 4;                      // Sets iteinputnum to input 4
+        }
+        if (itestatus[3] == 1){               // Checks itestatus array position 1 to determine if port 1 of the IT66353 DEV1 chip is selected
+        iteinputnum = 5;                      // Sets iteinputnum to input 5
+        }
+        if (itestatus[3] == 0){               // Checks itestatus array position 1 to determine if port 0 of the IT66353 DEV1 chip is selected
+        iteinputnum = 6;                      // Sets iteinputnum to input 6
+        }
+      }
+      if (itestatus[0] == 1){                 // Checks itestatus array position 0 to determine if port 1 of the IT6635 chip is currently selected
+        iteinputnum = 7;                      // Sets iteinputnum to input 7   
+      }
+      if (itestatus[0] == 0){                 // Checks itestatus array position 0 to determine if port 0 of the IT6635 chip is currently selected
+        iteinputnum = 8;                      // Sets iteinputnum to input 8
+      }
+    }
+
     // for TESmart 4K60 / TESmart 4K30 / MT-VIKI HDMI switch on Extron sw1 / alt sw1
-    if(ecapbytes[4] == 17 || ecapbytes[3] == 17 || ecapbytes[4] == 95){
-      if(ecapbytes[6] == 22 || ecapbytes[5] == 22 || ecapbytes[11] == 48){
+    if(ecapbytes[4] == 17 || ecapbytes[3] == 17 || ecapbytes[4] == 95 || iteinputnum > 0){
+          mode = 1;                             // Sets mode to 1 so the ITE mux data will be ignored while an autoswitch command is detected.
+          modetimer = millis();                 // resets modetimer to millis()
+      if(ecapbytes[6] == 22 || ecapbytes[5] == 22 || ecapbytes[11] == 48 || iteinputnum == 1){
         if(RT5Xir == 1)sendIR("5x",1,2); // RT5X profile 1 
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",1,3); // OSSC profile 1
@@ -724,7 +798,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(1);
         else sendSVS(1);
       }
-      else if(ecapbytes[6] == 23 || ecapbytes[5] == 23 || ecapbytes[11] == 49){
+      else if(ecapbytes[6] == 23 || ecapbytes[5] == 23 || ecapbytes[11] == 49 || iteinputnum == 2){
         if(RT5Xir == 1)sendIR("5x",2,2); // RT5X profile 2
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",2,3); // OSSC profile 2
@@ -732,7 +806,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(2);
         else sendSVS(2);
       }
-      else if(ecapbytes[6] == 24 || ecapbytes[5] == 24 || ecapbytes[11] == 50){
+      else if(ecapbytes[6] == 24 || ecapbytes[5] == 24 || ecapbytes[11] == 50 || iteinputnum == 3){
         if(RT5Xir == 1)sendIR("5x",3,2); // RT5X profile 3
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",3,3); // OSSC profile 3
@@ -740,7 +814,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(3);
         else sendSVS(3);
       }
-      else if(ecapbytes[6] == 25 || ecapbytes[5] == 25 || ecapbytes[11] == 51){
+      else if(ecapbytes[6] == 25 || ecapbytes[5] == 25 || ecapbytes[11] == 51 || iteinputnum == 4){
         if(RT5Xir == 1)sendIR("5x",4,2); // RT5X profile 4
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",4,3); // OSSC profile 4
@@ -748,7 +822,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(4);
         else sendSVS(4);
       }
-      else if(ecapbytes[6] == 26 || ecapbytes[5] == 26 || ecapbytes[11] == 52){
+      else if(ecapbytes[6] == 26 || ecapbytes[5] == 26 || ecapbytes[11] == 52 || iteinputnum == 5){
         if(RT5Xir == 1)sendIR("5x",5,2); // RT5X profile 5
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",5,3); // OSSC profile 5
@@ -756,7 +830,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(5);
         else sendSVS(5);
       }
-      else if(ecapbytes[6] == 27 || ecapbytes[5] == 27 || ecapbytes[11] == 53){
+      else if(ecapbytes[6] == 27 || ecapbytes[5] == 27 || ecapbytes[11] == 53 || iteinputnum == 6){
         if(RT5Xir == 1)sendIR("5x",6,2); // RT5X profile 6
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",6,3); // OSSC profile 6
@@ -764,7 +838,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(6);
         else sendSVS(6);
       }
-      else if(ecapbytes[6] == 28 || ecapbytes[5] == 28 || ecapbytes[11] == 54){
+      else if(ecapbytes[6] == 28 || ecapbytes[5] == 28 || ecapbytes[11] == 54 || iteinputnum == 7){
         if(RT5Xir == 1)sendIR("5x",7,2); // RT5X profile 7
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",7,3); // OSSC profile 7
@@ -772,7 +846,7 @@ void readExtron1(){
         if(SVS==0)sendRBP(7);
         else sendSVS(7);
       }
-      else if(ecapbytes[6] == 29 || ecapbytes[5] == 29 || ecapbytes[11] == 55){
+      else if(ecapbytes[6] == 29 || ecapbytes[5] == 29 || ecapbytes[11] == 55 || iteinputnum == 8){
         if(RT5Xir == 1)sendIR("5x",8,2); // RT5X profile 8
         if(RT5Xir && OSSCir)delay(500);
         if(OSSCir == 1)sendIR("ossc",8,3); // OSSC profile 8
@@ -822,7 +896,8 @@ void readExtron1(){
       }
       else if(ecapbytes[5] > 35 && ecapbytes[5] < 38){
         sendSVS(ecapbytes[5] - 21);
-      }      
+      } 
+      iteinputnum = 0;     
     }
 
     // for Otaku Games Scart Switch 1
@@ -1050,38 +1125,96 @@ void readExtron2(){
 
     }
 
+        //VIKI Manual Switch Detection
+
+    if (millis() - modetimer2 > 2000){  // Timer that disables sending SVS serial commands using the ITE mux data when there has recently been an autoswitch command (prevents duplicate commands)
+      modetimer2 = millis(); // Resets timer to current millis() count to disable this function once the variables hav been updated
+      mode2 = 0;  // Sets mode to 0 so the ITE mux data can be used to send SVS serial commands again
+      sendyes2 = 1; // Turns off sendyes so the SVS serial commands are not repeated if an autoswitch command preceeded the ITE commands
+    }
+
+    if (ecap.startsWith("=") && mode2 == 0){   // checks if the serial command from the VIKI starts with "=" This indicates that the command is an ITE mux status message
+    if (ecap.substring(10,11) == "P"){       // converts ITE mux status message position 11 to integer and updates itestatus array position 0 to that value
+    itestatus2[0] = ecap.substring(11,12).toInt();   // sets the itestatus array position 0 to 3
+    }
+    if (ecap.substring(18,20) == ">0"){       // checks if the ITE mux status message contains >0 at position 18-19
+    itestatus2[2] = 0;                         // sets the itestatus array position 2 to 0
+    itestatus2[1] = ecap.substring(12,13).toInt();  // converts ITE mux status message position 12 to integer and updates itestatus array position 1 to that value
+    }
+    if (ecap.substring(18,20) == ">1"){       // checks if the ITE mux status message contains >1 at position 18-19
+    itestatus2[4] = 1;                         // sets the itestatus array position 4 to 1
+    itestatus2[3] = ecap.substring(12,13).toInt();  // converts ITE mux status message position 12 to integer and updates itestatus array position 3 to that value
+    }
+     sendyes2 = 0;                             // sets sendyes to 0 indicating that an ITE message has been received and an SVS command can be sent once the sendtimer elapses
+     sendtimer2 = millis();                    // resets sendtimer to millis()
+     modetimer2 = millis();                    // resets modetimer to millis()
+   }
+    if ((millis() - sendtimer2 > 300) && sendyes2 == 0 && mode2 == 0){   // Checks is all conditions are met to sendSVS based on the ITE messages
+    sendtimer2 = millis();                     // resets sendtimer to millis()
+    sendyes2 = 1;                              // sets sendyes to 1 to prevent the message from being resent
+    if (itestatus2[0] == 3){                   // Checks itestatus array position 0 to determine if port 3 of the IT6635 chip is currently selected
+        if (itestatus2[1] == 2){               // Checks itestatus array position 1 to determine if port 2 of the IT66353 DEV0 chip is selected
+        iteinputnum2 = 1;                      // Sets iteinputnum to input 1
+        }
+        if (itestatus2[1] == 1){               // Checks itestatus array position 1 to determine if port 1 of the IT66353 DEV0 chip is selected
+        iteinputnum2 = 2;                      // Sets iteinputnum to input 2
+        }
+        if (itestatus2[1] == 0){               // Checks itestatus array position 1 to determine if port 0 of the IT66353 DEV0 chip is selected
+        iteinputnum2 = 3;                      // Sets iteinputnum to input 3
+        }
+      }
+      if (itestatus2[0] == 2){                 // Checks itestatus array position 0 to determine if port 2 of the IT6635 chip is currently selected
+        if (itestatus2[3] == 2){               // Checks itestatus array position 1 to determine if port 2 of the IT66353 DEV1 chip is selected
+        iteinputnum2 = 4;                      // Sets iteinputnum to input 4
+        }
+        if (itestatus2[3] == 1){               // Checks itestatus array position 1 to determine if port 1 of the IT66353 DEV1 chip is selected
+        iteinputnum2 = 5;                      // Sets iteinputnum to input 5
+        }
+        if (itestatus2[3] == 0){               // Checks itestatus array position 1 to determine if port 0 of the IT66353 DEV1 chip is selected
+        iteinputnum2 = 6;                      // Sets iteinputnum to input 6
+        }
+      }
+      if (itestatus2[0] == 1){                 // Checks itestatus array position 0 to determine if port 1 of the IT6635 chip is currently selected
+        iteinputnum2 = 7;                      // Sets iteinputnum to input 7   
+      }
+      if (itestatus2[0] == 0){                 // Checks itestatus array position 0 to determine if port 0 of the IT6635 chip is currently selected
+        iteinputnum2 = 8;                      // Sets iteinputnum to input 8
+      }
+    }
 
     // for TESmart 4K60 / TESmart 4K30 / MT-VIKI HDMI switch on Extron alt sw2 Port
-    if(ecapbytes[4] == 17 || ecapbytes[3] == 17 || ecapbytes[4] == 95){
-      if(ecapbytes[6] == 22 || ecapbytes[5] == 22 || ecapbytes[11] == 48){
+    if(ecapbytes[4] == 17 || ecapbytes[3] == 17 || ecapbytes[4] == 95 || iteinputnum2 > 0){
+          mode2 = 1;                             // Sets mode to 1 so the ITE mux data will be ignored while an autoswitch command is detected.
+          modetimer2 = millis();                 // resets modetimer to millis()
+      if(ecapbytes[6] == 22 || ecapbytes[5] == 22 || ecapbytes[11] == 48 || iteinputnum2 == 1){
         if(RT5Xir == 3)sendIR("5x",1,2); // RT5X profile 1 
         sendSVS(101);
       }
-      else if(ecapbytes[6] == 23 || ecapbytes[5] == 23 || ecapbytes[11] == 49){
+      else if(ecapbytes[6] == 23 || ecapbytes[5] == 23 || ecapbytes[11] == 49 || iteinputnum2 == 2){
         if(RT5Xir == 3)sendIR("5x",2,2); // RT5X profile 2
         sendSVS(102);
       }
-      else if(ecapbytes[6] == 24 || ecapbytes[5] == 24 || ecapbytes[11] == 50){
+      else if(ecapbytes[6] == 24 || ecapbytes[5] == 24 || ecapbytes[11] == 50 || iteinputnum2 == 3){
         if(RT5Xir == 3)sendIR("5x",3,2); // RT5X profile 3
         sendSVS(103);
       }
-      else if(ecapbytes[6] == 25 || ecapbytes[5] == 25 || ecapbytes[11] == 51){
+      else if(ecapbytes[6] == 25 || ecapbytes[5] == 25 || ecapbytes[11] == 51 || iteinputnum2 == 4){
         if(RT5Xir == 3)sendIR("5x",4,2); // RT5X profile 4
         sendSVS(104);
       }
-      else if(ecapbytes[6] == 26 || ecapbytes[5] == 26 || ecapbytes[11] == 52){
+      else if(ecapbytes[6] == 26 || ecapbytes[5] == 26 || ecapbytes[11] == 52 || iteinputnum2 == 5){
         if(RT5Xir == 3)sendIR("5x",5,2); // RT5X profile 5
         sendSVS(105);
       }
-      else if(ecapbytes[6] == 27 || ecapbytes[5] == 27 || ecapbytes[11] == 53){
+      else if(ecapbytes[6] == 27 || ecapbytes[5] == 27 || ecapbytes[11] == 53 || iteinputnum2 == 6){
         if(RT5Xir == 3)sendIR("5x",6,2); // RT5X profile 6
         sendSVS(106);
       }
-      else if(ecapbytes[6] == 28 || ecapbytes[5] == 28 || ecapbytes[11] == 54){
+      else if(ecapbytes[6] == 28 || ecapbytes[5] == 28 || ecapbytes[11] == 54 || iteinputnum2 == 7){
         if(RT5Xir == 3)sendIR("5x",7,2); // RT5X profile 7
         sendSVS(107);
       }
-      else if(ecapbytes[6] == 29 || ecapbytes[5] == 29 || ecapbytes[11] == 55){
+      else if(ecapbytes[6] == 29 || ecapbytes[5] == 29 || ecapbytes[11] == 55 || iteinputnum2 == 8){
         if(RT5Xir == 3)sendIR("5x",8,2); // RT5X profile 8
         sendSVS(108);
       }
@@ -1099,6 +1232,7 @@ void readExtron2(){
       else if(ecapbytes[5] > 31 && ecapbytes[5] < 38){
         sendSVS(ecapbytes[5] + 79);
       }
+      iteinputnum2 = 0;  
     }
 
     // for Otaku Games Scart Switch 2
@@ -1193,13 +1327,13 @@ void readGscart1(){
 
   uint8_t fpdc = 0; // 1 = 50% duty cycle was detected / all ports are in-active
   uint8_t bit[3] = {0,0,0};
-  float val[3] = {0,0,0};
+  float sendyes[3] = {0,0,0};
 
   for(uint8_t i=0;i<3;i++){ // read in analog pin voltages, read each pin 4x in a row to ensure an accurate read, combats if using too large of a pull-down resistor
     for(uint8_t j=0;j<4;j++){
-      val[i] = analogRead(apin[0][i]);
+      sendyes[i] = analogRead(apin[0][i]);
     }
-    if((val[i]/211) >= highsamvolt[0]){ // if voltage is greater than or equal to the voltage defined for a high, increase highcount[0] by 1 for that analog pin
+    if((sendyes[i]/211) >= highsamvolt[0]){ // if voltage is greater than or equal to the voltage defined for a high, increase highcount[0] by 1 for that analog pin
       highcount[0][i]++;
     }
   }
@@ -1358,13 +1492,13 @@ void readGscart2(){
 
   uint8_t fpdc = 0;
   uint8_t bit[3] = {0,0,0};
-  float val[3] = {0,0,0};
+  float sendyes[3] = {0,0,0};
 
   for(uint8_t i=0;i<3;i++){
     for(uint8_t j=0;j<4;j++){
-      val[i] = analogRead(apin[1][i]);
+      sendyes[i] = analogRead(apin[1][i]);
     }
-    if((val[i]/211) >= highsamvolt[1]){
+    if((sendyes[i]/211) >= highsamvolt[1]){
       highcount[1][i]++;
     }
   }
@@ -2301,8 +2435,16 @@ void sendIR(String type, uint8_t prof, uint8_t repeat){
     else if(prof == 13){irsend.sendNEC(0x7C,0x9D,repeat);delay(400);irsend.sendNEC(0x7C,0x96,repeat);} // OSSC profile 13
     else if(prof == 14){irsend.sendNEC(0x7C,0x9D,repeat);delay(400);irsend.sendNEC(0x47C,0x97,repeat);} // OSSC profile 14
   }
-  else if(type == "LG"){ // LG TV
-      irsend.sendNEC(0xFB04,0xF708,3); // Power button
+  else if(type == "LG"){           // LG CX OLED
+      irsend.sendNEC(0x04,0x08,0); // Power button
+      irsend.sendNEC(0x00,0x00,0);
+      irsend.sendNEC(0x00,0x00,0);
+      irsend.sendNEC(0x00,0x00,0);
+      delay(30);
+      irsend.sendNEC(0x04,0x08,0); // send once more
+      irsend.sendNEC(0x00,0x00,0);
+      irsend.sendNEC(0x00,0x00,0);
+      irsend.sendNEC(0x00,0x00,0);
   }
   
 } // end of sendIR()
@@ -2332,10 +2474,10 @@ void sendRTwake(uint16_t mil){
 } // end of sendRTwake()
 
 void LS0time1(unsigned long eTime){
-  LScurrentTime = millis();  // Init timer
-  if(LSprevTime == 0)       // If previous timer not initialized, do so now.
+  LScurrentTime = millis();  // Init sendtimer
+  if(LSprevTime == 0)       // If previous sendtimer not initialized, do so now.
     LSprevTime = millis();
-  if((LScurrentTime - LSprevTime) >= eTime){ // If it's been longer than eTime, send "0LS" and reset the timer.
+  if((LScurrentTime - LSprevTime) >= eTime){ // If it's been longer than eTime, send "0LS" and reset the sendtimer.
     LScurrentTime = 0;
     LSprevTime = 0;
     extronSerial.print(F("0LS"));
@@ -2345,10 +2487,10 @@ void LS0time1(unsigned long eTime){
 
 
 void LS0time2(unsigned long eTime){
-  LScurrentTime2 = millis();  // Init timer
-  if(LSprevTime2 == 0)       // If previous timer not initialized, do so now.
+  LScurrentTime2 = millis();  // Init sendtimer
+  if(LSprevTime2 == 0)       // If previous sendtimer not initialized, do so now.
     LSprevTime2 = millis();
-  if((LScurrentTime2 - LSprevTime2) >= eTime){ // If it's been longer than eTime, send "0LS" and reset the timer.
+  if((LScurrentTime2 - LSprevTime2) >= eTime){ // If it's been longer than eTime, send "0LS" and reset the sendtimer.
     LScurrentTime2 = 0;
     LSprevTime2 = 0;
     extronSerial2.print(F("0LS"));
