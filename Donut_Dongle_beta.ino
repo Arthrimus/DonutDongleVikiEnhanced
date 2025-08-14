@@ -457,10 +457,10 @@ unsigned long modetimer = 0;
 unsigned long modetimer2 = 0;
 uint8_t itestatus[] = {0,0,0,0,0};
 uint8_t itestatus2[] = {0,0,0,0,0};
-int sendyes = 1;
-int sendyes2 = 1;
-int mode = 0;
-int mode2 = 0;
+bool sendyes = 1;
+bool sendyes2 = 1;
+bool mode = 0;
+bool mode2 = 0;
 int iteinputnum = 0;
 int iteinputnum2 = 0;
 
@@ -732,14 +732,14 @@ void readExtron1(){
         //VIKI Manual Switch Detection
 
     if (millis() - modetimer > 2000){  // Timer that disables sending SVS serial commands using the ITE mux data when there has recently been an autoswitch command (prevents duplicate commands)
-      modetimer = millis(); // Resets timer to current millis() count to disable this function once the variables hav been updated
+      modetimer = millis(); // Resets timer to current millis() count to disable this function once the variables have been updated
       mode = 0;  // Sets mode to 0 so the ITE mux data can be used to send SVS serial commands again
       sendyes = 1; // Turns off sendyes so the SVS serial commands are not repeated if an autoswitch command preceeded the ITE commands
     }
 
     if (ecap.startsWith("=") && mode == 0){   // checks if the serial command from the VIKI starts with "=" This indicates that the command is an ITE mux status message
     if (ecap.substring(10,11) == "P"){        // checks if position 10 of the serial command from the VIKI contains "P" This indicates that the command is from the IT6635 chip
-    itestatus[0] = ecap.substring(11,12).toInt();   // sets the itestatus array position 0 to that value
+    itestatus[0] = ecap.substring(11,12).toInt();   // converts ITE mux status message position 10 to integer sets the itestatus array position 0 to that value
     }
     if (ecap.substring(18,20) == ">0"){       // checks if the ITE mux status message contains >0 at position 18-19
     itestatus[2] = 0;                         // sets the itestatus array position 2 to 0
@@ -897,7 +897,7 @@ void readExtron1(){
       else if(ecapbytes[5] > 35 && ecapbytes[5] < 38){
         sendSVS(ecapbytes[5] - 21);
       } 
-      iteinputnum = 0;     
+      iteinputnum = 0;                                          // Resets iteinputnum to 0 so sendSVS will not repeat after this cycle through the Void loop
     }
 
     // for Otaku Games Scart Switch 1
@@ -1134,8 +1134,8 @@ void readExtron2(){
     }
 
     if (ecap.startsWith("=") && mode2 == 0){   // checks if the serial command from the VIKI starts with "=" This indicates that the command is an ITE mux status message
-    if (ecap.substring(10,11) == "P"){       // converts ITE mux status message position 11 to integer and updates itestatus array position 0 to that value
-    itestatus2[0] = ecap.substring(11,12).toInt();   // sets the itestatus array position 0 to 3
+    if (ecap.substring(10,11) == "P"){       // checks if position 10 of the serial command from the VIKI contains "P" This indicates that the command is from the IT6635 chip
+    itestatus2[0] = ecap.substring(11,12).toInt();   // converts ITE mux status message position 10 to integer sets the itestatus array position 0 to that value
     }
     if (ecap.substring(18,20) == ">0"){       // checks if the ITE mux status message contains >0 at position 18-19
     itestatus2[2] = 0;                         // sets the itestatus array position 2 to 0
@@ -1232,7 +1232,7 @@ void readExtron2(){
       else if(ecapbytes[5] > 31 && ecapbytes[5] < 38){
         sendSVS(ecapbytes[5] + 79);
       }
-      iteinputnum2 = 0;  
+      iteinputnum2 = 0;                                           // Resets iteinputnum to 0 so sendSVS will not repeat after this cycle through the Void loop
     }
 
     // for Otaku Games Scart Switch 2
