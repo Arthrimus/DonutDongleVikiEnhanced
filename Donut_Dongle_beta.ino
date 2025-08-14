@@ -738,8 +738,8 @@ void readExtron1(){
     }
 
     if (ecap.startsWith("=") && mode == 0){   // checks if the serial command from the VIKI starts with "=" This indicates that the command is an ITE mux status message
-    if (ecap.substring(10,11) == "P"){       // converts ITE mux status message position 11 to integer and updates itestatus array position 0 to that value
-    itestatus[0] = ecap.substring(11,12).toInt();   // sets the itestatus array position 0 to 3
+    if (ecap.substring(10,11) == "P"){        // checks if position 10 of the serial command from the VIKI contains "P" This indicates that the command is from the IT6635 chip
+    itestatus[0] = ecap.substring(11,12).toInt();   // sets the itestatus array position 0 to that value
     }
     if (ecap.substring(18,20) == ">0"){       // checks if the ITE mux status message contains >0 at position 18-19
     itestatus[2] = 0;                         // sets the itestatus array position 2 to 0
