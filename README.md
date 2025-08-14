@@ -1,4 +1,7 @@
-# Donut Dongle
+# Donut Dongle MT-VIKI Enhanced Version
+
+## Notes From Arthimus
+I have added a function to the Donut Dongle Beta.ino that interprets status messages from the MT-VIKI IT66353 and IT6635 chips to determine when an input change has been triggered by the IR remote or the front panel buttons. This feature is not present in the original Donut Dongle code because these extra commands had not been discovered at the time.
 
 **Arduino Nano based hub that connects your digital and analog console switching setup with the RetroTink 4K and/or RetroTink 5x / OSSC for Auto Profile switching** </br>
 
